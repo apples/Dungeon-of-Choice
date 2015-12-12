@@ -1,0 +1,20 @@
+[submodule "ginseng"]
+	path = ginseng
+	url = https://github.com/dbralir/ginseng
+	branch = master
+[submodule "raspberry"]
+	path = raspberry
+	url = https://github.com/dbralir/raspberry
+	branch = master
+[submodule "sushi"]
+	path = sushi
+	url = https://github.com/dbralir/sushi
+	branch = master
+[submodule "jsoncpp"]
+	path = jsoncpp
+	url = https://github.com/open-source-parsers/jsoncpp
+	branch = master
+[submodule "soloud"]
+	path = soloud
+	url = https://github.com/dbralir/soloud
+	branch = cmake
