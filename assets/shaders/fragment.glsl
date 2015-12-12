@@ -1,16 +1,17 @@
 #version 410
 
 in vec2 TexCoord;
+in vec4 Position;
 
-uniform sampler2D DiffuseTexture;
-uniform bool GrayScale;
+uniform sampler2D Texture;
 
 out vec4 FragColor;
 
 void main() {
-    FragColor = texture(DiffuseTexture, TexCoord);
-    if (GrayScale) {
-        float gray = dot(FragColor.rgb, vec3(0.299, 0.587, 0.114));
-        FragColor = vec4(vec3(gray), gl_Color.a);
+    FragColor = texture(Texture, TexCoord);
+    if (length(Position) > 3) {
+        FragColor *= 0;
+    } else if (length(Position) > 2) {
+        FragColor *= 0.5;
     }
 }
