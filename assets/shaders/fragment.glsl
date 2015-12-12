@@ -11,7 +11,9 @@ void main() {
     FragColor = texture(Texture, TexCoord);
     if (length(Position) > 3) {
         FragColor *= 0;
-    } else if (length(Position) > 2) {
+    } else if (length(Position) > 2.5) {
         FragColor *= 0.5;
+    } else {
+        FragColor *= 0.75;
     }
 }
