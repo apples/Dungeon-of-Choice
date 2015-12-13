@@ -152,9 +152,15 @@ struct Game {
 
     std::shared_ptr<BaddyState> baddy;
 
+    int winwidth;
+    int winheight;
+
     Game(sushi::window* window) : cur_state(state_moving), window(window) {
         cur_hall->left = make_random_hall();
         cur_hall->right = make_random_hall();
+
+        winwidth = window->width();
+        winheight = window->height();
     }
 
     glm::mat4 draw_hallway(const Hallway& hall, glm::mat4 model_mat) {
@@ -233,7 +239,7 @@ struct Game {
             cur_state = state_lose;
         }
 
-        proj_mat = glm::perspectiveFov(glm::radians(120.f), float(window->width()), float(window->height()), 0.01f, 50.f);
+        proj_mat = glm::perspectiveFov(glm::radians(120.f), float(winwidth), float(winheight), 0.01f, 50.f);
         (this->*cur_state)(delta);
 
         render_hud();
@@ -242,7 +248,7 @@ struct Game {
     std::shared_ptr<Hallway> make_random_hall() {
         auto rv = std::make_shared<Hallway>();
 
-        std::uniform_int_distribution<int> len_dist (1+difficulty/5,1+difficulty/5+3);
+        std::uniform_int_distribution<int> len_dist (1+difficulty/5,1+difficulty/5+2);
         rv->len = len_dist(rng);
 
         std::uniform_int_distribution<int> inhab_dist (0,2);
@@ -397,13 +403,19 @@ struct Game {
 
         if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_LEFT})) {
             baddy->player_pos.x -= delta * battle_speed * difficulty / 5.f;
+            if (baddy->player_pos.x < -7.f) {
+                baddy->player_pos.x = -7.f;
+            }
         }
         if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_RIGHT})) {
             baddy->player_pos.x += delta * battle_speed * difficulty / 5.f;
+            if (baddy->player_pos.x > 7.f) {
+                baddy->player_pos.x = 7.f;
+            }
         }
 
-        auto w = float(window->width());
-        auto h = float(window->height());
+        auto w = float(winwidth);
+        auto h = float(winheight);
         proj_mat = glm::ortho(-w/2.f,w/2.f,-h/2.f,h/2.f,-1.f,1.f);
         glClear(GL_DEPTH_BUFFER_BIT);
         view_mat = glm::mat4();
@@ -458,7 +470,7 @@ struct Game {
     }
 
     void render_hud() {
-        proj_mat = glm::ortho(0.f,float(window->width()),float(window->height()),0.f,-1.f,1.f);
+        proj_mat = glm::ortho(0.f,float(winwidth),float(winheight),0.f,-1.f,1.f);
         glClear(GL_DEPTH_BUFFER_BIT);
         view_mat = glm::mat4();
         auto model_mat = glm::scale(glm::mat4(1.f), {32.f,-32.f,1.f});
