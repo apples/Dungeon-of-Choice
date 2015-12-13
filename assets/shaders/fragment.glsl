@@ -12,6 +12,9 @@ out vec4 FragColor;
 
 void main() {
     FragColor = texture(Texture, TexCoord);
+    if (FragColor.a < 0.5) {
+        discard;
+    }
     if (FullBright) {
         return;
     }
