@@ -4,14 +4,20 @@ in vec2 TexCoord;
 in vec4 Position;
 
 uniform sampler2D Texture;
+uniform float BrightRadius;
+uniform float DimRadius;
+uniform bool FullBright;
 
 out vec4 FragColor;
 
 void main() {
     FragColor = texture(Texture, TexCoord);
-    if (length(Position) > 3) {
+    if (FullBright) {
+        return;
+    }
+    if (length(Position) > DimRadius) {
         FragColor *= 0;
-    } else if (length(Position) > 2.5) {
+    } else if (length(Position) > BrightRadius) {
         FragColor *= 0.5;
     } else {
         FragColor *= 0.75;
