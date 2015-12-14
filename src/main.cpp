@@ -103,12 +103,20 @@ Overloaded<R,Ts...> overload(Ts&&... ts) {
     return Overloaded<R,Ts...>(std::forward<Ts>(ts)...);
 }
 
+struct Config {
+    int AA = 2;
+    bool anisotropic = true;
+};
+
+static Config config = {};
+
 struct Game {
     static constexpr auto player_speed = 2.f;
     static constexpr auto battle_speed = 12.5f;
 
     using State = void(Game::*)(double);
     State cur_state;
+    State ui_state = nullptr;
 
     int player_health = 3;
     int difficulty = 1;
@@ -117,7 +125,7 @@ struct Game {
     glm::vec3 player_pos = {0.f, 0.f, 0.f};
     glm::quat player_rot = glm::quat();
 
-    sushi::texture_2d halltex = sushi::load_texture_2d("assets/textures/hallway.png", false, false);
+    sushi::texture_2d halltex = sushi::load_texture_2d("assets/textures/hallway.png", false, false, config.anisotropic);
     sushi::static_mesh hallobj = sushi::load_static_mesh_file("assets/models/hallway.obj");
     sushi::static_mesh juncobj = sushi::load_static_mesh_file("assets/models/junction.obj");
     sushi::unique_program shader = sushi::link_program({
@@ -133,19 +141,19 @@ struct Game {
     );
 
     std::array<sushi::texture_2d,int(Item::NUM_ITEMS)> itemtexs = {{
-        sushi::load_texture_2d("assets/textures/lamp.png", false, false),
-        sushi::load_texture_2d("assets/textures/boots.png", false, false),
-        sushi::load_texture_2d("assets/textures/heal.png", false, false),
+        sushi::load_texture_2d("assets/textures/lamp.png", false, false, false),
+        sushi::load_texture_2d("assets/textures/boots.png", false, false, false),
+        sushi::load_texture_2d("assets/textures/heal.png", false, false, false),
     }};
 
     sushi::static_mesh treasureobj = sushi::load_static_mesh_file("assets/models/treasure.obj");
-    sushi::texture_2d treasuretex = sushi::load_texture_2d("assets/textures/treasure.png", false, false);
+    sushi::texture_2d treasuretex = sushi::load_texture_2d("assets/textures/treasure.png", false, false, config.anisotropic);
 
-    sushi::texture_2d baddytex = sushi::load_texture_2d("assets/textures/baddy.png", false, false);
-    sushi::texture_2d hearttex = sushi::load_texture_2d("assets/textures/heart.png", false, false);
-    sushi::texture_2d battletex = sushi::load_texture_2d("assets/textures/battle.png", false, false);
-    sushi::texture_2d playertex = sushi::load_texture_2d("assets/textures/player.png", false, false);
-    sushi::texture_2d daggertex = sushi::load_texture_2d("assets/textures/dagger.png", false, false);
+    sushi::texture_2d baddytex = sushi::load_texture_2d("assets/textures/baddy.png", false, false, config.anisotropic);
+    sushi::texture_2d hearttex = sushi::load_texture_2d("assets/textures/heart.png", false, false, false);
+    sushi::texture_2d battletex = sushi::load_texture_2d("assets/textures/battle.png", false, false, false);
+    sushi::texture_2d playertex = sushi::load_texture_2d("assets/textures/player.png", false, false, false);
+    sushi::texture_2d daggertex = sushi::load_texture_2d("assets/textures/dagger.png", false, false, false);
 
     std::shared_ptr<Hallway> cur_hall = make_random_hall();
 
@@ -189,17 +197,17 @@ struct Game {
         glBindTexture(GL_TEXTURE_2D, renderedTexture.handle.get());
 
         // Give an empty image to OpenGL ( the last "0" )
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, winwidth, winheight, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, winwidth * config.AA, winheight * config.AA, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
 
         // Poor filtering. Needed !
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
         // The depth buffer
         GLuint depthrenderbuffer;
         glGenRenderbuffers(1, &depthrenderbuffer);
         glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, winwidth, winheight);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, winwidth * config.AA, winheight * config.AA);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthrenderbuffer);
 
         // Set "renderedTexture" as our colour attachement #0
@@ -280,7 +288,7 @@ struct Game {
     void main_loop(double delta) {
         // Render to our framebuffer
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        glViewport(0,0,winwidth,winheight);
+        glViewport(0,0,winwidth * config.AA,winheight * config.AA);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         sushi::set_program(shader);
@@ -320,7 +328,12 @@ struct Game {
         view_mat = glm::mat4();
         auto model_mat = glm::mat4();
 
-        sushi::set_uniform(shader, "EnableFisheye", 1);
+        if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_F2})) {
+            sushi::set_uniform(shader, "EnableFisheye", 0);
+        } else {
+            sushi::set_uniform(shader, "EnableFisheye", 1);
+        }
+
         auto mvp = proj_mat * view_mat * model_mat;
         sushi::set_uniform(shader, "MVP", mvp);
         sushi::set_uniform(shader, "ModelMat", model_mat);
@@ -331,6 +344,10 @@ struct Game {
 
         sushi::set_uniform(shader, "EnableFisheye", 0);
         render_hud();
+
+        if (ui_state) {
+            (this->*ui_state)(delta);
+        }
     }
 
     std::shared_ptr<Hallway> make_random_hall() {
@@ -549,6 +566,8 @@ struct Game {
             return;
         }
 
+        ui_state = baddy_ui_state;
+
         auto player_battle_speed = battle_speed * (std::count(begin(player_items),end(player_items),Item::BOOTS) + 1) * 2.f / 3.f;
 
         if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_LEFT})) {
@@ -564,12 +583,36 @@ struct Game {
             }
         }
 
+        for (auto& b : baddy->bullets) {
+            b.pos.y -= delta * (battle_speed * 2.f/3.f * difficulty / 7.5f + 1.f);
+
+            if (glm::distance(b.pos, baddy->player_pos) < 0.9) {
+                --player_health;
+                b.alive = false;
+            }
+
+            if (b.pos.y <= -7.5f) {
+                b.alive = false;
+            }
+        }
+
+        baddy->bullets.erase(std::remove_if(baddy->bullets.begin(),baddy->bullets.end(),[](auto b){return !b.alive;}),baddy->bullets.end());
+
+        if (baddy->bullets.empty()) {
+            cur_state = state_tojunc;
+            ui_state = nullptr;
+            baddy = {};
+            cur_hall->inhabitant = Nothing{};
+        };
+    }
+
+    void baddy_ui_state(double delta) {
         auto w = float(winwidth);
         auto h = float(winheight);
         proj_mat = glm::ortho(-w/2.f,w/2.f,-h/2.f,h/2.f,-1.f,1.f);
         glClear(GL_DEPTH_BUFFER_BIT);
         view_mat = glm::mat4();
-        model_mat = glm::scale(glm::mat4(1.f), {256.f,256.f,1.f});
+        auto model_mat = glm::scale(glm::mat4(1.f), {256.f,256.f,1.f});
         sushi::set_uniform(shader, "FullBright", 1);
         auto mvp = proj_mat * view_mat * model_mat;
         sushi::set_uniform(shader, "MVP", mvp);
@@ -591,7 +634,6 @@ struct Game {
         }
 
         for (auto& b : baddy->bullets) {
-            b.pos.y -= delta * (battle_speed * 2.f/3.f * difficulty / 7.5f + 1.f);
             auto mat = glm::translate(model_mat, {b.pos.x,b.pos.y,0.5});
             auto mvp = proj_mat * view_mat * mat;
             sushi::set_uniform(shader, "MVP", mvp);
@@ -599,24 +641,7 @@ struct Game {
             sushi::set_uniform(shader, "ViewMat", view_mat);
             sushi::set_texture(0, daggertex);
             sushi::draw_mesh(spriteobj);
-
-            if (glm::distance(b.pos, baddy->player_pos) < 0.9) {
-                --player_health;
-                b.alive = false;
-            }
-
-            if (b.pos.y <= -7.5f) {
-                b.alive = false;
-            }
         }
-
-        baddy->bullets.erase(std::remove_if(baddy->bullets.begin(),baddy->bullets.end(),[](auto b){return !b.alive;}),baddy->bullets.end());
-
-        if (baddy->bullets.empty()) {
-            cur_state = state_tojunc;
-            baddy = {};
-            cur_hall->inhabitant = Nothing{};
-        };
     }
 
     void render_hud() {
@@ -655,7 +680,7 @@ struct Game {
 
 int main() try {
     std::clog << "Opening window..." << std::endl;
-    auto window = sushi::window(1280, 720, "Ludum Dare 32", false);
+    auto window = sushi::window(0, 0, "Ludum Dare 32", true);
 
     std::clog << "Initializing audio..." << std::endl;
     SoLoud::Soloud soloud;

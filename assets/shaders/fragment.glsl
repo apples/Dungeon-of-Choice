@@ -16,8 +16,10 @@ vec2 fisheye(vec2 src)
 {
     if (EnableFisheye) {
         float z = sqrt(1.0 - src.x * src.x - src.y * src.y);
-        float a = 1.0 / (z * tan(FisheyeTheta * 0.5));
-        return ((src) * a);
+        float t = tan(FisheyeTheta * 0.5);
+        float a = 1.0 / (z * t);
+        vec2 c = 2.0 * vec2(0.5,0.5) / (sqrt(0.5) * t); // refit to corners
+        return (src * a / c);
     }
     return src;
 }
