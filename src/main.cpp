@@ -105,7 +105,7 @@ Overloaded<R,Ts...> overload(Ts&&... ts) {
 
 struct Game {
     static constexpr auto player_speed = 2.f;
-    static constexpr auto battle_speed = 7.5f;
+    static constexpr auto battle_speed = 12.5f;
 
     using State = void(Game::*)(double);
     State cur_state;
@@ -184,16 +184,17 @@ struct Game {
     }
 
     glm::mat4 draw_hallway(const Hallway& hall, glm::mat4 model_mat) {
+        auto vp = proj_mat * view_mat;
         sushi::set_texture(0, halltex);
         for (int i=0; i<hall.len; ++i) {
-            auto mvp = proj_mat * view_mat * model_mat;
+            auto mvp = vp * model_mat;
             sushi::set_uniform(shader, "MVP", mvp);
             sushi::set_uniform(shader, "ModelMat", model_mat);
             sushi::set_uniform(shader, "ViewMat", view_mat);
             sushi::draw_mesh(hallobj);
             model_mat = glm::translate(model_mat, {0.f, 0.f, -2.f});
         }
-        auto mvp = proj_mat * view_mat * model_mat;
+        auto mvp = vp * model_mat;
         sushi::set_uniform(shader, "MVP", mvp);
         sushi::set_uniform(shader, "ModelMat", model_mat);
         sushi::set_uniform(shader, "ViewMat", view_mat);
@@ -273,10 +274,10 @@ struct Game {
     std::shared_ptr<Hallway> make_random_hall() {
         auto rv = std::make_shared<Hallway>();
 
-        std::uniform_int_distribution<int> len_dist (1+difficulty/5,1+difficulty/5+2);
+        std::uniform_int_distribution<int> len_dist (1+difficulty/10,1+difficulty/10+2);
         rv->len = len_dist(rng);
 
-        std::uniform_int_distribution<int> inhab_dist (0,2);
+        std::discrete_distribution<int> inhab_dist ({2,1,2});
         switch (inhab_dist(rng)) {
             case 0:
                 rv->inhabitant = Nothing{};
@@ -486,14 +487,16 @@ struct Game {
             return;
         }
 
+        auto player_battle_speed = battle_speed * (std::count(begin(player_items),end(player_items),Item::BOOTS) + 1) * 2.f / 3.f;
+
         if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_LEFT})) {
-            baddy->player_pos.x -= delta * battle_speed * (std::count(begin(player_items),end(player_items),Item::BOOTS) + 1) / 3.f;
+            baddy->player_pos.x -= delta * player_battle_speed;
             if (baddy->player_pos.x < -7.f) {
                 baddy->player_pos.x = -7.f;
             }
         }
         if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_RIGHT})) {
-            baddy->player_pos.x += delta * battle_speed * (std::count(begin(player_items),end(player_items),Item::BOOTS) + 1) / 3.f;
+            baddy->player_pos.x += delta * player_battle_speed;
             if (baddy->player_pos.x > 7.f) {
                 baddy->player_pos.x = 7.f;
             }
@@ -526,7 +529,7 @@ struct Game {
         }
 
         for (auto& b : baddy->bullets) {
-            b.pos.y -= delta * battle_speed * 2.f/3.f * difficulty / 5.f;
+            b.pos.y -= delta * (battle_speed * 2.f/3.f * difficulty / 7.5f + 1.f);
             auto mat = glm::translate(model_mat, {b.pos.x,b.pos.y,0.5});
             auto mvp = proj_mat * view_mat * mat;
             sushi::set_uniform(shader, "MVP", mvp);
