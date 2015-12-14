@@ -5,6 +5,8 @@
 #include <raspberry/raspberry.hpp>
 #include <soloud.h>
 #include <soloud_wavstream.h>
+#include <soloud_wav.h>
+#include <soloud_speech.h>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 
@@ -47,6 +49,14 @@ struct Hallway {
     boost::variant<Nothing,Treasure,Baddy> inhabitant;
     std::shared_ptr<Hallway> left;
     std::shared_ptr<Hallway> right;
+
+    enum Dir {
+        NONE,
+        LEFT,
+        RIGHT
+    };
+
+    Dir from = NONE;
 };
 
 static const auto default_hall = Hallway{3, {}, nullptr, nullptr};
@@ -183,7 +193,17 @@ struct Game {
     sushi::texture_2d renderedTexture = {sushi::make_unique_texture(),0,0};
     GLuint framebuffer = 0;
 
-    Game(sushi::window* window) : cur_state(state_moving), window(window) {
+    SoLoud::Soloud* soloud;
+
+    SoLoud::Wav hurtsfx;
+    SoLoud::Wav misssfx;
+    SoLoud::Speech itemsfx;
+
+    Game(sushi::window* window, SoLoud::Soloud* soloud) : cur_state(state_moving), window(window), soloud(soloud) {
+        hurtsfx.load("assets/sfx/hurt.wav");
+        misssfx.load("assets/sfx/miss.wav");
+        itemsfx.setText("");//.load("assets/sfx/item.wav");
+
         cur_hall->left = make_random_hall();
         cur_hall->right = make_random_hall();
 
@@ -230,6 +250,53 @@ struct Game {
     glm::mat4 draw_hallway(const Hallway& hall, glm::mat4 model_mat) {
         auto vp = proj_mat * view_mat;
         sushi::set_texture(0, halltex);
+        switch (hall.from) {
+            case Hallway::LEFT: {
+                auto mmat = glm::translate(model_mat, {0.f, 0.f, 1.5773503f});
+                auto mmat2 = glm::rotate(mmat, glm::radians(60.f), {0.f, 1.f, 0.f});
+                auto mvp = vp * mmat2;
+                sushi::set_uniform(shader, "MVP", mvp);
+                sushi::set_uniform(shader, "ModelMat", mmat2);
+                sushi::set_uniform(shader, "ViewMat", view_mat);
+                sushi::draw_mesh(juncobj);
+                mmat2 = glm::translate(mmat2, {0.f, 0.f, 1.5773503f});
+                mvp = vp * mmat2;
+                sushi::set_uniform(shader, "MVP", mvp);
+                sushi::set_uniform(shader, "ModelMat", mmat2);
+                sushi::set_uniform(shader, "ViewMat", view_mat);
+                sushi::draw_mesh(hallobj);
+                mmat2 = glm::rotate(mmat, glm::radians(-60.f), {0.f, 1.f, 0.f});
+                mmat2 = glm::translate(mmat2, {0.f, 0.f, 1.5773503f});
+                mvp = vp * mmat2;
+                sushi::set_uniform(shader, "MVP", mvp);
+                sushi::set_uniform(shader, "ModelMat", mmat2);
+                sushi::set_uniform(shader, "ViewMat", view_mat);
+                sushi::draw_mesh(hallobj);
+            } break;
+            case Hallway::RIGHT: {
+                auto mmat = glm::translate(model_mat, {0.f, 0.f, 1.5773503f});
+                auto mmat2 = glm::rotate(mmat, glm::radians(-60.f), {0.f, 1.f, 0.f});
+                auto mvp = vp * mmat2;
+                sushi::set_uniform(shader, "MVP", mvp);
+                sushi::set_uniform(shader, "ModelMat", mmat2);
+                sushi::set_uniform(shader, "ViewMat", view_mat);
+                sushi::draw_mesh(juncobj);
+                mmat2 = glm::translate(mmat2, {0.f, 0.f, 1.5773503f});
+                mvp = vp * mmat2;
+                sushi::set_uniform(shader, "MVP", mvp);
+                sushi::set_uniform(shader, "ModelMat", mmat2);
+                sushi::set_uniform(shader, "ViewMat", view_mat);
+                sushi::draw_mesh(hallobj);
+                mmat2 = glm::rotate(mmat, glm::radians(60.f), {0.f, 1.f, 0.f});
+                mmat2 = glm::translate(mmat2, {0.f, 0.f, 1.5773503f});
+                mvp = vp * mmat2;
+                sushi::set_uniform(shader, "MVP", mvp);
+                sushi::set_uniform(shader, "ModelMat", mmat2);
+                sushi::set_uniform(shader, "ViewMat", view_mat);
+                sushi::draw_mesh(hallobj);
+            } break;
+            default: break;
+        }
         for (int i=0; i<hall.len; ++i) {
             auto mvp = vp * model_mat;
             sushi::set_uniform(shader, "MVP", mvp);
@@ -265,7 +332,7 @@ struct Game {
         boost::apply_visitor(overload<void>(
             [&](const Nothing&){},
             [&](const Treasure&){
-                auto treasure_mat = glm::translate(model_mat, {0.f, 0.f, 0.42265});
+                auto treasure_mat = glm::translate(model_mat, {0.f, 0.f, 0.5773503f});
                 auto mvp = proj_mat * view_mat * treasure_mat;
                 sushi::set_uniform(shader, "MVP", mvp);
                 sushi::set_uniform(shader, "ModelMat", treasure_mat);
@@ -274,7 +341,7 @@ struct Game {
                 sushi::draw_mesh(treasureobj);
             },
             [&](const Baddy&){
-                auto treasure_mat = glm::translate(model_mat, {0.f, 0.f, 0.42265});
+                auto treasure_mat = glm::translate(model_mat, {0.f, 0.f, 0.5773503f});
                 auto mvp = proj_mat * view_mat * treasure_mat;
                 sushi::set_uniform(shader, "MVP", mvp);
                 sushi::set_uniform(shader, "ModelMat", treasure_mat);
@@ -391,7 +458,7 @@ struct Game {
 
     void state_moving(double delta) {
         auto until_stop = cur_hall->len * 2.f - 2.f - player_pos.z;
-        auto step_size = delta * player_speed;
+        auto step_size = delta * get_run_speed();
 
         if (until_stop < step_size) {
             player_pos.z += until_stop;
@@ -438,9 +505,10 @@ struct Game {
             cur_hall = cur_hall->left;
             cur_hall->left = make_random_hall();
             cur_hall->right = make_random_hall();
-            player_pos.z = -1.57735f;
+            player_pos.z = -1.5773503f;
             player_rot = glm::quat();
             cur_state = state_moving;
+            cur_hall->from = Hallway::LEFT;
             ++difficulty;
         } else {
             player_rot *= glm::angleAxis(step_size, glm::vec3{0.f, 1.f, 0.f});
@@ -461,9 +529,10 @@ struct Game {
             cur_hall = cur_hall->right;
             cur_hall->left = make_random_hall();
             cur_hall->right = make_random_hall();
-            player_pos.z = -1.57735f;
+            player_pos.z = -1.5773503f;
             player_rot = glm::quat();
             cur_state = state_moving;
+            cur_hall->from = Hallway::RIGHT;
             ++difficulty;
         } else {
             player_rot *= glm::angleAxis(step_size, glm::vec3{0.f, 1.f, 0.f});
@@ -499,20 +568,36 @@ struct Game {
         if (!treasure_state) {
             treasure_state = std::make_shared<TreasureState>();
             treasure_state->treasure = boost::get<Treasure>(cur_hall->inhabitant);
-
-            switch (treasure_state->treasure.item) {
-                case Item::TORCH:
-                    player_items.push_back(Item::TORCH);
-                    break;
-                case Item::BOOTS:
-                    player_items.push_back(Item::BOOTS);
-                    break;
-                case Item::HEAL:
-                    ++player_health;
-                    break;
-            }
         }
 
+        view_mat = mat4_cast(player_rot) * glm::mat4(1.f);
+        view_mat = glm::translate(view_mat, player_pos);
+
+        auto model_mat = glm::mat4(1.f);
+        draw_hallway_full(*cur_hall, model_mat);
+
+        treasure_state->timer -= delta;
+
+        if (treasure_state->timer <= 0) {
+            cur_hall->inhabitant = Nothing{};
+            cur_state = state_treasure_get;
+            switch (treasure_state->treasure.item) {
+                case Item::TORCH:
+                    itemsfx.setText("Light Source");
+                    break;
+                case Item::BOOTS:
+                    itemsfx.setText("Speed Boots");
+                    break;
+                case Item::HEAL:
+                    itemsfx.setText("Heart");
+                    break;
+            }
+            soloud->play(itemsfx);
+            treasure_state->timer = 1.f;
+        };
+    }
+
+    void state_treasure_get(double delta) {
         view_mat = mat4_cast(player_rot) * glm::mat4(1.f);
         view_mat = glm::translate(view_mat, player_pos);
 
@@ -540,7 +625,17 @@ struct Game {
         treasure_state->timer -= delta;
 
         if (treasure_state->timer <= 0) {
-            cur_hall->inhabitant = Nothing{};
+            switch (treasure_state->treasure.item) {
+                case Item::TORCH:
+                    player_items.push_back(Item::TORCH);
+                    break;
+                case Item::BOOTS:
+                    player_items.push_back(Item::BOOTS);
+                    break;
+                case Item::HEAL:
+                    ++player_health;
+                    break;
+            }
             cur_state = state_tojunc;
             treasure_state = {};
         };
@@ -589,21 +684,48 @@ struct Game {
             if (glm::distance(b.pos, baddy->player_pos) < 0.9) {
                 --player_health;
                 b.alive = false;
+                soloud->play(hurtsfx);
             }
 
             if (b.pos.y <= -7.5f) {
                 b.alive = false;
+                soloud->play(misssfx);
             }
         }
 
         baddy->bullets.erase(std::remove_if(baddy->bullets.begin(),baddy->bullets.end(),[](auto b){return !b.alive;}),baddy->bullets.end());
 
         if (baddy->bullets.empty()) {
-            cur_state = state_tojunc;
+            cur_state = state_battlewin;
             ui_state = nullptr;
-            baddy = {};
-            cur_hall->inhabitant = Nothing{};
+            baddy->countdown = 1.f;
         };
+    }
+
+    void state_battlewin(double delta) {
+        view_mat = mat4_cast(player_rot) * glm::mat4(1.f);
+        view_mat = glm::translate(view_mat, player_pos);
+
+        auto model_mat = glm::mat4(1.f);
+        draw_hallway_full(*cur_hall, model_mat);
+
+        baddy->countdown -= delta;
+        if (baddy->countdown > 0) {
+            return;
+        }
+
+        baddy = {};
+        cur_hall->inhabitant = Nothing{};
+
+        std::discrete_distribution<int> drops {3,1};
+
+        if (drops(rng) == 1) {
+            treasure_state = std::make_shared<TreasureState>();
+            treasure_state->treasure = make_random_treasure();
+            cur_state = state_treasure;
+        } else {
+            cur_state = state_tojunc;
+        }
     }
 
     void baddy_ui_state(double delta) {
@@ -695,7 +817,7 @@ int main() try {
     soloud.play(ambiance);
 
     std::clog << "Creating Game..." << std::endl;
-    auto game = Game(&window);
+    auto game = Game(&window, &soloud);
 
     using clock = std::chrono::high_resolution_clock;
     auto last_tick = clock::now();
