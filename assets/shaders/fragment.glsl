@@ -21,8 +21,8 @@ void main() {
     if (length(Position) > DimRadius) {
         FragColor *= 0;
     } else if (length(Position) > BrightRadius) {
-        FragColor *= 0.5;
+        FragColor *= 0.33;
     } else {
-        FragColor *= 0.75;
+        FragColor *= 0.66;
     }
 }
