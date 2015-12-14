@@ -171,12 +171,48 @@ struct Game {
     int winwidth;
     int winheight;
 
+    // The texture we're going to render to
+    sushi::texture_2d renderedTexture = {sushi::make_unique_texture(),0,0};
+    GLuint framebuffer = 0;
+
     Game(sushi::window* window) : cur_state(state_moving), window(window) {
         cur_hall->left = make_random_hall();
         cur_hall->right = make_random_hall();
 
         winwidth = window->width();
         winheight = window->height();
+
+        glGenFramebuffers(1, &framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+        // "Bind" the newly created texture : all future texture functions will modify this texture
+        glBindTexture(GL_TEXTURE_2D, renderedTexture.handle.get());
+
+        // Give an empty image to OpenGL ( the last "0" )
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, winwidth, winheight, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+
+        // Poor filtering. Needed !
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+        // The depth buffer
+        GLuint depthrenderbuffer;
+        glGenRenderbuffers(1, &depthrenderbuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, winwidth, winheight);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthrenderbuffer);
+
+        // Set "renderedTexture" as our colour attachement #0
+        glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, renderedTexture.handle.get(), 0);
+
+        // Set the list of draw buffers.
+        GLenum DrawBuffers[1] = {GL_COLOR_ATTACHMENT0};
+        glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+        // Always check that our framebuffer is ok
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            throw std::runtime_error("Failed to create framebuffer!");
+        }
     }
 
     float get_run_speed() {
@@ -242,9 +278,16 @@ struct Game {
     }
 
     void main_loop(double delta) {
+        // Render to our framebuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glViewport(0,0,winwidth,winheight);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
         sushi::set_program(shader);
 
         sushi::set_uniform(shader, "Texture", 0);
+        sushi::set_uniform(shader, "EnableFisheye", 0);
+        sushi::set_uniform(shader, "FisheyeTheta", glm::radians(120.f));
 
         if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_F1})) {
             sushi::set_uniform(shader, "FullBright", 1);
@@ -268,6 +311,25 @@ struct Game {
         proj_mat = glm::perspectiveFov(glm::radians(120.f), float(winwidth), float(winheight), 0.01f, 50.f);
         (this->*cur_state)(delta);
 
+        // Render to the screen
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0,0,winwidth,winheight);
+        glClear(GL_DEPTH_BUFFER_BIT);
+
+        proj_mat = glm::ortho(-1.f,1.f,1.f,-1.f,-1.f,1.f);
+        view_mat = glm::mat4();
+        auto model_mat = glm::mat4();
+
+        sushi::set_uniform(shader, "EnableFisheye", 1);
+        auto mvp = proj_mat * view_mat * model_mat;
+        sushi::set_uniform(shader, "MVP", mvp);
+        sushi::set_uniform(shader, "ModelMat", model_mat);
+        sushi::set_uniform(shader, "ViewMat", view_mat);
+        sushi::set_uniform(shader, "FullBright", 1);
+        sushi::set_texture(0, renderedTexture);
+        sushi::draw_mesh(spriteobj);
+
+        sushi::set_uniform(shader, "EnableFisheye", 0);
         render_hud();
     }
 
@@ -593,7 +655,7 @@ struct Game {
 
 int main() try {
     std::clog << "Opening window..." << std::endl;
-    auto window = sushi::window(0, 0, "Ludum Dare 32", true);
+    auto window = sushi::window(1280, 720, "Ludum Dare 32", false);
 
     std::clog << "Initializing audio..." << std::endl;
     SoLoud::Soloud soloud;
