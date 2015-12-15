@@ -37,14 +37,21 @@ enum class Item {
     TORCH,
     BOOTS,
     HEAL,
-    NUM_ITEMS
+    NUM_ITEMS,
+    MIMIC
 };
 
 struct Treasure {
     Item item;
 };
 
-struct Baddy {};
+enum class BaddyType {
+    BAD_DUDE,
+    MIMIC
+};
+struct Baddy {
+    BaddyType type = BaddyType::BAD_DUDE;
+};
 
 struct Hallway {
     int len;
@@ -122,13 +129,18 @@ struct Config {
 
 static Config config = {};
 
+static const auto LKEY = sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_LEFT};
+static const auto RKEY = sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_RIGHT};
+
 struct Game {
     static constexpr auto player_speed = 2.f;
     static constexpr auto battle_speed = 12.5f;
 
     using State = void(Game::*)(double);
-    State cur_state;
+    State cur_state = nullptr;
     State ui_state = nullptr;
+    using HudState = void(Game::*)();
+    HudState hud_state = nullptr;
 
     int player_health = 3;
     int difficulty = 1;
@@ -162,10 +174,13 @@ struct Game {
     sushi::texture_2d treasuretex = sushi::load_texture_2d("assets/textures/treasure.png", false, false, config.anisotropic);
 
     sushi::texture_2d baddytex = sushi::load_texture_2d("assets/textures/baddy.png", false, false, config.anisotropic);
+    sushi::texture_2d mimictex = sushi::load_texture_2d("assets/textures/mimic.png", false, false, config.anisotropic);
     sushi::texture_2d hearttex = sushi::load_texture_2d("assets/textures/heart.png", false, false, false);
     sushi::texture_2d battletex = sushi::load_texture_2d("assets/textures/battle.png", false, false, false);
     sushi::texture_2d playertex = sushi::load_texture_2d("assets/textures/player.png", false, false, false);
     sushi::texture_2d daggertex = sushi::load_texture_2d("assets/textures/dagger.png", false, false, false);
+
+    sushi::texture_2d titletex = sushi::load_texture_2d("assets/textures/title.png", false, false, false);
 
     std::shared_ptr<Hallway> cur_hall = make_random_hall();
 
@@ -188,6 +203,12 @@ struct Game {
 
     std::shared_ptr<BaddyState> baddy;
 
+    struct TreasureState {
+        Treasure treasure;
+        float timer = 1.f;
+    };
+    std::shared_ptr<TreasureState> treasure_state;
+
     int winwidth;
     int winheight;
 
@@ -201,7 +222,24 @@ struct Game {
     SoLoud::Wav misssfx;
     SoLoud::Speech itemsfx;
 
-    Game(sushi::window* window, SoLoud::Soloud* soloud) : cur_state(state_moving), window(window), soloud(soloud) {
+    void reset() {
+        ui_state = state_title;
+        baddy = {};
+        treasure_state = {};
+        difficulty = 1;
+        player_health = 3;
+        player_pos = {0.f, 0.f, 0.f};
+        player_rot = glm::quat();
+        player_items = {};
+        cur_hall = make_random_hall();
+        cur_hall->inhabitant = {};
+        cur_hall->left = make_random_hall();
+        cur_hall->right = make_random_hall();
+        cur_state = nullptr;
+        hud_state = nullptr;
+    };
+
+    Game(sushi::window* window, SoLoud::Soloud* soloud) : window(window), soloud(soloud) {
         hurtsfx.load("assets/sfx/hurt.wav");
         misssfx.load("assets/sfx/miss.wav");
         itemsfx.setText("");//.load("assets/sfx/item.wav");
@@ -243,6 +281,8 @@ struct Game {
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             throw std::runtime_error("Failed to create framebuffer!");
         }
+
+        reset();
     }
 
     float get_run_speed() {
@@ -342,19 +382,34 @@ struct Game {
                 sushi::set_texture(0, treasuretex);
                 sushi::draw_mesh(treasureobj);
             },
-            [&](const Baddy&){
+            [&](const Baddy& bd){
                 auto treasure_mat = glm::translate(model_mat, {0.f, 0.f, 0.5773503f});
                 auto mvp = proj_mat * view_mat * treasure_mat;
                 sushi::set_uniform(shader, "MVP", mvp);
                 sushi::set_uniform(shader, "ModelMat", treasure_mat);
                 sushi::set_uniform(shader, "ViewMat", view_mat);
-                sushi::set_texture(0, baddytex);
+                switch (bd.type) {
+                    case BaddyType::BAD_DUDE:
+                        sushi::set_texture(0, baddytex);
+                        break;
+                    case BaddyType::MIMIC:
+                        sushi::set_texture(0, mimictex);
+                        break;
+                }
                 sushi::draw_mesh(spriteobj);
             }
         ), hall.inhabitant);
     }
 
     void main_loop(double delta) {
+        if (window->was_pressed(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_ESCAPE})) {
+            if (ui_state == &state_title) {
+                window->stop_loop();
+            } else {
+                reset();
+            }
+        }
+
         // Render to our framebuffer
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         glViewport(0,0,winwidth * config.AA,winheight * config.AA);
@@ -366,7 +421,7 @@ struct Game {
         sushi::set_uniform(shader, "EnableFisheye", 0);
         sushi::set_uniform(shader, "FisheyeTheta", glm::radians(120.f));
 
-        if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_F1})) {
+        if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_F5})) {
             sushi::set_uniform(shader, "FullBright", 1);
         } else {
             sushi::set_uniform(shader, "FullBright", 0);
@@ -386,7 +441,9 @@ struct Game {
         }
 
         proj_mat = glm::perspectiveFov(glm::radians(120.f), float(winwidth), float(winheight), 0.01f, 50.f);
-        (this->*cur_state)(delta);
+        if (cur_state) {
+            (this->*cur_state)(delta);
+        }
 
         // Render to the screen
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -397,7 +454,7 @@ struct Game {
         view_mat = glm::mat4();
         auto model_mat = glm::mat4();
 
-        if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_F2})) {
+        if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_F6})) {
             sushi::set_uniform(shader, "EnableFisheye", 0);
         } else {
             sushi::set_uniform(shader, "EnableFisheye", 1);
@@ -412,8 +469,9 @@ struct Game {
         sushi::draw_mesh(spriteobj);
 
         sushi::set_uniform(shader, "EnableFisheye", 0);
-        render_hud();
-
+        if (hud_state) {
+            (this->*hud_state)();
+        }
         if (ui_state) {
             (this->*ui_state)(delta);
         }
@@ -433,9 +491,14 @@ struct Game {
             case 1:
                 rv->inhabitant = make_random_treasure();
                 break;
-            case 2:
-                rv->inhabitant = Baddy{};
-                break;
+            case 2: {
+                std::discrete_distribution<int> mimic_dist ({5,1});
+                if (mimic_dist(rng) == 1) {
+                    rv->inhabitant = Treasure{Item::MIMIC};
+                } else {
+                    rv->inhabitant = Baddy{};
+                }
+            } break;
         }
 
         return rv;
@@ -444,7 +507,9 @@ struct Game {
     Treasure make_random_treasure() {
         auto rv = Treasure();
 
-        std::uniform_int_distribution<int> inhab_dist (0,int(Item::NUM_ITEMS)-1);
+        static_assert(int(Item::NUM_ITEMS)==3, "Item count mismatch!");
+        // TORCH, BOOTS, HEAL
+        std::discrete_distribution<int> inhab_dist {2,3,5};
         rv.item = Item(inhab_dist(rng));
 
         return rv;
@@ -482,7 +547,7 @@ struct Game {
 
     void state_tojunc(double delta) {
         auto until_stop = cur_hall->len * 2.f - 0.4226497f - player_pos.z;
-        auto step_size = delta * player_speed;
+        auto step_size = delta * get_run_speed();
 
         if (until_stop < step_size) {
             player_pos.z += until_stop;
@@ -549,22 +614,16 @@ struct Game {
         view_mat = mat4_cast(player_rot) * glm::mat4(1.f);
         view_mat = glm::translate(view_mat, player_pos);
 
-        if (window->was_pressed(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_LEFT})) {
+        if (window->was_pressed(LKEY)) {
             cur_state = state_turnleft;
         }
-        if (window->was_pressed(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_RIGHT})) {
+        if (window->was_pressed(RKEY)) {
             cur_state = state_turnright;
         }
 
         auto model_mat = glm::mat4(1.f);
         draw_hallway_full(*cur_hall, model_mat);
     }
-
-    struct TreasureState {
-        Treasure treasure;
-        float timer = 1.f;
-    };
-    std::shared_ptr<TreasureState> treasure_state;
 
     void state_treasure(double delta) {
         if (!treasure_state) {
@@ -593,7 +652,12 @@ struct Game {
                 case Item::HEAL:
                     itemsfx.setText("Hart");
                     break;
+                case Item::MIMIC:
+                    itemsfx.setText("Memic");
+                    cur_hall->inhabitant = Baddy{BaddyType::MIMIC};
+                    break;
             }
+            itemsfx.setVolume(1.f);
             soloud->play(itemsfx);
             treasure_state->timer = 1.f;
         };
@@ -614,7 +678,7 @@ struct Game {
         model_mat = glm::scale(glm::mat4(1.f), {64.f,64.f,1.f});
         sushi::set_uniform(shader, "FullBright", 1);
 
-        {
+        if (treasure_state->treasure.item != Item::MIMIC) {
             auto mvp = proj_mat * view_mat * model_mat;
             sushi::set_uniform(shader, "MVP", mvp);
             sushi::set_uniform(shader, "ModelMat", model_mat);
@@ -630,21 +694,26 @@ struct Game {
             switch (treasure_state->treasure.item) {
                 case Item::TORCH:
                     player_items.push_back(Item::TORCH);
+                    cur_state = state_tojunc;
                     break;
                 case Item::BOOTS:
                     player_items.push_back(Item::BOOTS);
+                    cur_state = state_tojunc;
                     break;
                 case Item::HEAL:
                     ++player_health;
+                    cur_state = state_tojunc;
+                    break;
+                case Item::MIMIC:
+                    cur_state = state_baddy;
                     break;
             }
-            cur_state = state_tojunc;
             treasure_state = {};
         };
     }
 
     void state_baddy(double delta) {
-        std::uniform_real_distribution<float> spawn_dist (-7.f,7.f);
+        std::uniform_real_distribution<float> spawn_dist (-7.5f,7.5f);
         if (!baddy) {
             baddy = std::make_shared<BaddyState>();
             for (int i=0; i<difficulty*3+1; ++i) {
@@ -665,15 +734,15 @@ struct Game {
 
         ui_state = baddy_ui_state;
 
-        auto player_battle_speed = battle_speed * (std::count(begin(player_items),end(player_items),Item::BOOTS) + 1) * 2.f / 3.f;
+        auto player_battle_speed = battle_speed * (std::count(begin(player_items),end(player_items),Item::BOOTS) + 1);
 
-        if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_LEFT})) {
+        if (window->is_down(LKEY)) {
             baddy->player_pos.x -= delta * player_battle_speed;
             if (baddy->player_pos.x < -7.f) {
                 baddy->player_pos.x = -7.f;
             }
         }
-        if (window->is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_RIGHT})) {
+        if (window->is_down(RKEY)) {
             baddy->player_pos.x += delta * player_battle_speed;
             if (baddy->player_pos.x > 7.f) {
                 baddy->player_pos.x = 7.f;
@@ -681,7 +750,7 @@ struct Game {
         }
 
         for (auto& b : baddy->bullets) {
-            b.pos.y -= delta * (battle_speed * 2.f/3.f * difficulty / 7.5f + 1.f);
+            b.pos.y -= delta * (battle_speed * difficulty / 7.5f + 2.f);
 
             if (glm::distance(b.pos, baddy->player_pos) < 0.9) {
                 --player_health;
@@ -717,11 +786,12 @@ struct Game {
         }
 
         baddy = {};
+        auto bt = boost::get<Baddy>(cur_hall->inhabitant).type;
         cur_hall->inhabitant = Nothing{};
 
         std::discrete_distribution<int> drops {3,1};
 
-        if (drops(rng) == 1) {
+        if (bt == BaddyType::MIMIC || drops(rng) == 1) {
             treasure_state = std::make_shared<TreasureState>();
             treasure_state->treasure = make_random_treasure();
             cur_state = state_treasure;
@@ -765,6 +835,28 @@ struct Game {
             sushi::set_uniform(shader, "ViewMat", view_mat);
             sushi::set_texture(0, daggertex);
             sushi::draw_mesh(spriteobj);
+        }
+    }
+
+    void state_title(double delta) {
+        auto w = float(winwidth);
+        auto h = float(winheight);
+        proj_mat = glm::ortho(-w/2.f,w/2.f,-h/2.f,h/2.f,-1.f,1.f);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        view_mat = glm::mat4();
+        auto model_mat = glm::scale(glm::mat4(1.f), {h*4.f/3.f/2.f,h/2.f,1.f});
+        sushi::set_uniform(shader, "FullBright", 1);
+        auto mvp = proj_mat * view_mat * model_mat;
+        sushi::set_uniform(shader, "MVP", mvp);
+        sushi::set_uniform(shader, "ModelMat", model_mat);
+        sushi::set_uniform(shader, "ViewMat", view_mat);
+        sushi::set_texture(0, titletex);
+        sushi::draw_mesh(spriteobj);
+        
+        if (window->was_pressed(LKEY) || window->was_pressed(RKEY)) {
+            cur_state = state_moving;
+            ui_state = nullptr;
+            hud_state = render_hud;
         }
     }
 
@@ -835,6 +927,9 @@ int main() try {
         auto delta = std::chrono::duration<double>(this_tick-last_tick).count();
         last_tick = this_tick;
 
+        if (window.is_down(sushi::input_button{sushi::input_type::KEYBOARD, GLFW_KEY_F7})) {
+            delta *= 5.f;
+        }
         game.main_loop(delta);
     });
 

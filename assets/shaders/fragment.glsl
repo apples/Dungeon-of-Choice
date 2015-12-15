@@ -60,9 +60,9 @@ void main() {
         if (length(Position) > DimRadius) {
             FragColor *= 0;
         } else if (length(Position) > BrightRadius) {
-            FragColor *= 0.33;
+            FragColor *= 0.30;
         } else {
-            FragColor *= 0.66;
+            FragColor *= 0.80;
         }
     }
     OutColor = FragColor.rgb;
