@@ -12,6 +12,8 @@
 
 #include <boost/variant.hpp>
 
+#include <windows.h>
+
 #include <cstdlib>
 #include <cmath>
 #include <iostream>
@@ -589,7 +591,7 @@ struct Game {
                     itemsfx.setText("Speed Boots");
                     break;
                 case Item::HEAL:
-                    itemsfx.setText("Heart");
+                    itemsfx.setText("Hart");
                     break;
             }
             soloud->play(itemsfx);
@@ -801,8 +803,10 @@ struct Game {
 };
 
 int main() try {
+    auto fullscreen = MessageBox(nullptr, "Do you want to run the game fullscreen?", "Dungeon of Choice", MB_YESNO | MB_ICONQUESTION);
+
     std::clog << "Opening window..." << std::endl;
-    auto window = sushi::window(0, 0, "Ludum Dare 32", true);
+    auto window = sushi::window(0, 0, "Dungeon of Choice", (fullscreen == IDYES));
 
     std::clog << "Initializing audio..." << std::endl;
     SoLoud::Soloud soloud;
