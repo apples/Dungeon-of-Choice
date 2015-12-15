@@ -181,6 +181,7 @@ struct Game {
     sushi::texture_2d daggertex = sushi::load_texture_2d("assets/textures/dagger.png", false, false, false);
 
     sushi::texture_2d titletex = sushi::load_texture_2d("assets/textures/title.png", false, false, false);
+    sushi::texture_2d gameovertex = sushi::load_texture_2d("assets/textures/gameover.png", false, false, false);
 
     std::shared_ptr<Hallway> cur_hall = make_random_hall();
 
@@ -222,10 +223,14 @@ struct Game {
     SoLoud::Wav misssfx;
     SoLoud::Speech itemsfx;
 
+    bool player_lost = false;
+
     void reset() {
         ui_state = state_title;
+        player_lost = false;
         baddy = {};
         treasure_state = {};
+        losetimer = {};
         difficulty = 1;
         player_health = 3;
         player_pos = {0.f, 0.f, 0.f};
@@ -436,8 +441,10 @@ struct Game {
         sushi::set_uniform(shader, "BrightRadius", lamp.bright_radius + lamp.bright_flicker);
         sushi::set_uniform(shader, "DimRadius", lamp.dim_radius + lamp.dim_flicker);
 
-        if (player_health <= 0) {
+        if (!player_lost && player_health <= 0) {
+            player_lost = true;
             cur_state = state_lose;
+            ui_state = nullptr;
         }
 
         proj_mat = glm::perspectiveFov(glm::radians(120.f), float(winwidth), float(winheight), 0.01f, 50.f);
@@ -515,12 +522,27 @@ struct Game {
         return rv;
     }
 
+    struct LoseTimer {
+        float timer = 1.f;
+    };
+    std::shared_ptr<LoseTimer> losetimer;
+
     void state_lose(double delta) {
         view_mat = mat4_cast(player_rot) * glm::mat4(1.f);
         view_mat = glm::translate(view_mat, player_pos);
 
         auto model_mat = glm::mat4(1.f);
         draw_hallway_full(*cur_hall, model_mat);
+
+        if (!losetimer) {
+            losetimer = std::make_shared<LoseTimer>();
+        }
+        losetimer->timer -= delta;
+        if (losetimer->timer <= 0) {
+            cur_state = nullptr;
+            ui_state = state_gameover;
+            losetimer = {};
+        }
     }
 
     void state_moving(double delta) {
@@ -852,12 +874,28 @@ struct Game {
         sushi::set_uniform(shader, "ViewMat", view_mat);
         sushi::set_texture(0, titletex);
         sushi::draw_mesh(spriteobj);
-        
+
         if (window->was_pressed(LKEY) || window->was_pressed(RKEY)) {
             cur_state = state_moving;
             ui_state = nullptr;
             hud_state = render_hud;
         }
+    }
+
+    void state_gameover(double delta) {
+        auto w = float(winwidth);
+        auto h = float(winheight);
+        proj_mat = glm::ortho(-w/2.f,w/2.f,-h/2.f,h/2.f,-1.f,1.f);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        view_mat = glm::mat4();
+        auto model_mat = glm::scale(glm::mat4(1.f), {h*4.f/3.f/2.f,h/2.f,1.f});
+        sushi::set_uniform(shader, "FullBright", 1);
+        auto mvp = proj_mat * view_mat * model_mat;
+        sushi::set_uniform(shader, "MVP", mvp);
+        sushi::set_uniform(shader, "ModelMat", model_mat);
+        sushi::set_uniform(shader, "ViewMat", view_mat);
+        sushi::set_texture(0, gameovertex);
+        sushi::draw_mesh(spriteobj);
     }
 
     void render_hud() {
