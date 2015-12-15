@@ -1,8 +1,8 @@
 cmake_minimum_required (VERSION 3.0)
 project(LD34)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=core2 -mtune=bdver4")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=core2 -mtune=bdver4")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mwindows -march=core2 -mtune=bdver4")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mwindows -march=core2 -mtune=bdver4")
 
 add_subdirectory(ginseng)
 add_subdirectory(raspberry)
